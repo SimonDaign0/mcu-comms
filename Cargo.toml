@@ -1,0 +1,20 @@
+[package]
+name = "mcu-comms"
+version = "0.1.0"
+authors = ["SimonDaign0"]
+edition = "2021"
+description = "A communication and framing protocol utility library with encryption for microcontrollers."
+documentation = "https://docs.rs/mcu-comms"
+repository = "https://github.com/SimonDaign0/mcu-comms"
+readme = "README.md"
+license = "Apache-2.0"
+keywords = ["esp", "aes", "ccm", "cryptography", "hal"]
+categories = ["embedded", "cryptography", "no-std"]
+
+[dependencies]
+serde = { version = "1.0.228", default-features = false, features = ["derive"] }
+postcard = { version = "1.1.3", default-features = false }
+heapless = "0.9.3"
+
+[dev-dependencies]
+aes = "0.8.3"
