@@ -634,6 +634,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "esp32c3-examples"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "defmt 1.1.0",
+ "esp-backtrace",
+ "esp-bootloader-esp-idf",
+ "esp-hal",
+ "esp-println",
+ "mcu-comms",
+]
+
+[[package]]
 name = "esp32c5"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -691,19 +704,6 @@ checksum = "8b4b8c4e4d9f187553ecdb7173edec7b2deb2beea106eedefecdb1654b8ee25a"
 dependencies = [
  "defmt 1.1.0",
  "vcell",
-]
-
-[[package]]
-name = "examples"
-version = "0.1.0"
-dependencies = [
- "critical-section",
- "defmt 1.1.0",
- "esp-backtrace",
- "esp-bootloader-esp-idf",
- "esp-hal",
- "esp-println",
- "mcu-comms",
 ]
 
 [[package]]

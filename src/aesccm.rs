@@ -4,14 +4,18 @@
 //! (Counter with CBC-MAC) tailored for resource-constrained microcontrollers.
 //! It handles packet serialization, MAC address validation, nonce tracking,
 //! and hardware-accelerated encrypt/decrypt operations through a custom HAL trait.
-
 use core::ops::Deref;
 use serde::{Deserialize, Serialize};
 
 // Package-wide global constants to prevent repetition
 const MAX_PAYLOAD_SIZE: usize = 64;
 const HEADER_SIZE: usize = 12;
-const TAG_SIZE: usize = 8;
+const TAG_SIZE: usize = 16;
+const B0_FLAGS: u8 = 0b0_1_111_011;
+const FLAGS_IDX: usize = 6;
+const NONCE_OFFSET: usize = 7;
+const MAC_OFFSET: usize = 0;
+const PAYLOAD_OFFSET: usize = HEADER_SIZE;
 
 /// Errors that can occur during packet construction, serialization, or decryption.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,21 +61,17 @@ pub enum Component {
 /// ```rust,ignore
 /// use aesccm::Encrypt;
 ///
-/// impl Encrypt for esp_hal::aes::Aes<'static> {
-///     fn encrypt(
-///         &mut self,
-///         key_stream_buf: &mut [u8; 16],
-///         a_block: &mut [u8; 16],
-///         key: [u8; 16],
-///     ) {
-///         key_stream_buf.copy_from_slice(a_block);
-///         self.encrypt(key_stream_buf, key);
-///     }
-/// }
+///pub struct AesHal(esp_hall::aes::Aes<'static>);
+///impl Encrypt for AesHal {
+///    fn encrypt(&mut self, key_stream_buf: &mut [u8; 16], a_block: &mut [u8; 16], key: [u8; 16]) {
+///        key_stream_buf.copy_from_slice(a_block);
+///        self.0.encrypt(key_stream_buf, key);
+///    }
+///}
 /// ```
 pub trait Encrypt {
     /// Encrypts the given 16-byte buffer with the given key using the MCU's AES hardware peripheral.
-    fn encrypt(&mut self, key_stream_buf: &mut [u8; 16], a_block: &mut [u8; 16], key: [u8; 16]);
+    fn encrypt(&mut self, key_stream_buf: &mut [u8; 16], block: &mut [u8; 16], key: [u8; 16]);
 }
 
 /// A stack-allocated serialized packet buffer.
@@ -115,7 +115,7 @@ impl Default for AESCCMPacket {
 }
 
 /// Represents the raw data fields to be packaged securely into an encrypted frame.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct PacketData {
     /// Destination MAC address.
     pub dst: MacAddr,
@@ -179,7 +179,7 @@ impl Deref for MacAddr {
 }
 
 /// A 5-byte counter nonce to safeguard transactions against replay attacks.
-pub struct Nonce {
+struct Nonce {
     counter: u64,
 }
 
@@ -190,7 +190,7 @@ impl Nonce {
     ///
     /// Returns `Err(PacketError::AESCounterOverflow)` if the counter overflows
     /// the maximum 5-byte threshold (`0xFF_FF_FF_FF_FF`).
-    pub fn inc(&mut self) -> Result<[u8; 5], PacketError> {
+    fn inc(&mut self) -> Result<[u8; 5], PacketError> {
         const MAX_5_BYTES: u64 = 0xFF_FF_FF_FF_FF;
         if self.counter >= MAX_5_BYTES {
             return Err(PacketError::AESCounterOverflow);
@@ -205,28 +205,115 @@ impl Nonce {
     }
 
     /// Sets the underlying counter directly. Typically used when synchronizing with a peer.
-    pub fn set(&mut self, new_counter: u64) {
+    fn set(&mut self, new_counter: u64) {
         self.counter = new_counter;
     }
 }
 
+/// A zero-copy view into a raw packet buffer.
+///
+/// `PacketView` does not own the underlying data. It simply interprets a
+/// byte slice according to the expected packet layout.
+///
+/// This is useful in embedded or `no_std` environments where copying or
+/// allocating packets is undesirable.
+///
+/// # Packet layout
+///
+/// The expected layout of the underlying buffer is assumed to be:
+///
+/// ```text
+/// +----------------+----------------+----------------+
+/// | MAC (6 bytes)  | FLAGS (1 byte) | NONCE (5 bytes) | ...
+/// +----------------+----------------+----------------+
+/// ```
+///
+/// Offsets are defined by constants such as `MAC_OFFSET`, `FLAGS_IDX`,
+/// and `NONCE_OFFSET`.
+///
+/// # Safety / Panics
+///
+/// This type uses `unwrap()` internally when extracting fixed-size fields.
+/// Therefore:
+///
+/// - The input slice **must be large enough**
+/// - Invalid or truncated buffers will cause a panic
+///
+/// In embedded contexts, ensure packet validation happens before constructing
+/// a `PacketView`.
+pub struct PacketView<'a> {
+    bytes: &'a [u8],
+}
+
+impl<'a> PacketView<'a> {
+    /// Creates a new `PacketView` from a raw byte slice.
+    ///
+    /// This performs basic validation via `TryFrom<[u8]>` implementation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PacketError` if the buffer is too small or malformed.
+    pub fn new(bytes: &'a [u8]) -> Result<Self, PacketError> {
+        Self::try_from(bytes)
+    }
+
+    /// Returns the 6-byte MAC address from the packet.
+    pub fn mac(&self) -> [u8; 6] {
+        self.bytes[MAC_OFFSET..MAC_OFFSET + 6].try_into().unwrap()
+    }
+
+    /// Returns the packet flags byte.
+    pub fn flags(&self) -> u8 {
+        self.bytes[FLAGS_IDX]
+    }
+
+    /// Returns the raw 5-byte nonce field.
+    pub fn raw_nonce(&self) -> [u8; 5] {
+        self.bytes[NONCE_OFFSET..NONCE_OFFSET + 5]
+            .try_into()
+            .unwrap()
+    }
+
+    /// Returns the raw nonce as a 64-bit integer in be format.
+    pub fn nonce(&self) -> u64 {
+        let raw_nonce = self.raw_nonce();
+        u64::from_be_bytes([
+            0,
+            0,
+            0,
+            raw_nonce[0],
+            raw_nonce[1],
+            raw_nonce[2],
+            raw_nonce[3],
+            raw_nonce[4],
+        ])
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for PacketView<'a> {
+    type Error = PacketError;
+
+    /// Attempts to parse a slice of over-the-air bytes into an organized packet view layout.
+    fn try_from(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        if bytes.len() <= HEADER_SIZE + TAG_SIZE {
+            return Err(PacketError::InvalidFormat);
+        }
+        Ok(Self { bytes })
+    }
+}
+
 /// An immutable, parsed representation of a received over-the-air raw frame.
-struct PacketView {
+struct Parts {
     pub mac: [u8; 6],
     pub flags: u8,
     pub raw_nonce: [u8; 5],
     pub payload_len: usize,
-    pub tag: [u8; 8],
+    pub tag: [u8; TAG_SIZE],
 }
 
-impl PacketView {
-    const FLAGS_IDX: usize = 6;
-    const NONCE_OFFSET: usize = 7;
-    const MAC_OFFSET: usize = 0;
-    const PAYLOAD_OFFSET: usize = HEADER_SIZE;
-
+impl Parts {
     /// Decodes the 5-byte raw nonce segment into a standard 64-bit unsigned integer counter.
-    pub fn nonce(&self) -> u64 {
+    fn nonce(&self) -> u64 {
         u64::from_be_bytes([
             0,
             0,
@@ -240,7 +327,7 @@ impl PacketView {
     }
 }
 
-impl TryFrom<&[u8]> for PacketView {
+impl TryFrom<&[u8]> for Parts {
     type Error = PacketError;
 
     /// Attempts to parse a slice of over-the-air bytes into an organized packet view layout.
@@ -248,17 +335,13 @@ impl TryFrom<&[u8]> for PacketView {
         if bytes.len() <= HEADER_SIZE + TAG_SIZE {
             return Err(PacketError::InvalidFormat);
         }
-        let mac: [u8; 6] = bytes[Self::MAC_OFFSET..Self::MAC_OFFSET + 6]
-            .try_into()
-            .unwrap();
-        let raw_nonce: [u8; 5] = bytes[Self::NONCE_OFFSET..Self::NONCE_OFFSET + 5]
-            .try_into()
-            .unwrap();
-        let payload_len = bytes.len() - TAG_SIZE - Self::PAYLOAD_OFFSET;
+        let mac: [u8; 6] = bytes[MAC_OFFSET..MAC_OFFSET + 6].try_into().unwrap();
+        let raw_nonce: [u8; 5] = bytes[NONCE_OFFSET..NONCE_OFFSET + 5].try_into().unwrap();
+        let payload_len = bytes.len() - TAG_SIZE - PAYLOAD_OFFSET;
 
-        let tag: [u8; 8] = bytes[bytes.len() - TAG_SIZE..].try_into().unwrap();
+        let tag: [u8; TAG_SIZE] = bytes[bytes.len() - TAG_SIZE..].try_into().unwrap();
 
-        let flags = bytes[Self::FLAGS_IDX];
+        let flags = bytes[FLAGS_IDX];
         Ok(Self {
             mac,
             flags,
@@ -285,7 +368,7 @@ impl AdHeader {
     }
 
     /// Serializes the size of the Associated Data header into a 2-byte big-endian format.
-    pub fn u16_be_len(&self) -> [u8; 2] {
+    fn u16_be_len(&self) -> [u8; 2] {
         (self.inner.len() as u16).to_be_bytes()
     }
 }
@@ -361,13 +444,7 @@ impl<T: Encrypt> AESCCM<T> {
         let raw_nonce = self.tx_nonce.inc()?;
         let mac_addr = packet_data.dst;
 
-        let b_block = Self::write_b_block(
-            &mut block_buf,
-            *packet_data.dst,
-            packet_data.flags,
-            raw_nonce,
-            payload_len,
-        );
+        let b_block = Self::write_b_block(&mut block_buf, *packet_data.dst, raw_nonce, payload_len);
 
         let ad_header = AdHeader::new(&mac_addr, packet_data.flags, &raw_nonce);
 
@@ -397,17 +474,16 @@ impl<T: Encrypt> AESCCM<T> {
     /// - `PacketError::Duplicate` if a potential replay attack is intercepted.
     /// - `PacketError::Corrupted` if the tag verification fails.
     pub fn decrypt(&mut self, bytes: &mut [u8]) -> Result<PacketData, PacketError> {
-        let view = PacketView::try_from(&*bytes)?;
-        if view.nonce() <= self.rx_nonce.counter {
+        let parts = Parts::try_from(&*bytes)?;
+        if parts.nonce() <= self.rx_nonce.counter {
             return Err(PacketError::Duplicate);
         }
 
-        let mut payload =
-            &mut bytes[PacketView::PAYLOAD_OFFSET..PacketView::PAYLOAD_OFFSET + view.payload_len];
+        let mut payload = &mut bytes[PAYLOAD_OFFSET..PAYLOAD_OFFSET + parts.payload_len];
 
         let mut block_buf = [0_u8; 16];
-        let a_block = Self::write_a_block(&mut block_buf, view.mac, view.raw_nonce);
-        let mut tag = view.tag;
+        let a_block = Self::write_a_block(&mut block_buf, parts.mac, parts.raw_nonce);
+        let mut tag = parts.tag;
 
         self.xor_tag(&mut tag, a_block);
 
@@ -415,12 +491,11 @@ impl<T: Encrypt> AESCCM<T> {
 
         let b_block = Self::write_b_block(
             &mut block_buf,
-            view.mac,
-            view.flags,
-            view.raw_nonce,
-            view.payload_len,
+            parts.mac,
+            parts.raw_nonce,
+            parts.payload_len,
         );
-        let ad_header = AdHeader::new(&view.mac, view.flags, &view.raw_nonce);
+        let ad_header = AdHeader::new(&parts.mac, parts.flags, &parts.raw_nonce);
 
         let tag_cmp = self.gen_raw_tag(b_block, ad_header, payload);
         if !Self::is_tag_match_const_time(&tag, &tag_cmp) {
@@ -429,13 +504,13 @@ impl<T: Encrypt> AESCCM<T> {
 
         let cmd =
             postcard::from_bytes::<Command>(&payload).map_err(|_| PacketError::InvalidFormat)?;
-        let packet_data = PacketData::new(view.mac.into(), view.flags, cmd);
-        self.rx_nonce.set(view.nonce());
+        let packet_data = PacketData::new(parts.mac.into(), parts.flags, cmd);
+        self.rx_nonce.set(parts.nonce());
         Ok(packet_data)
     }
 
     /// Populates and returns a formatted A-block (encryption initialization vector block).
-    pub fn write_a_block<'b>(
+    fn write_a_block<'b>(
         buf: &'b mut [u8; 16],
         mac: [u8; 6],
         raw_nonce: [u8; 5],
@@ -450,27 +525,26 @@ impl<T: Encrypt> AESCCM<T> {
     }
 
     /// Populates and returns a formatted B-block (authentication vector block).
-    pub fn write_b_block<'b>(
+    fn write_b_block<'b>(
         buf: &'b mut [u8; 16],
         mac: [u8; 6],
-        flags: u8,
         raw_nonce: [u8; 5],
         payload_len: usize,
     ) -> &'b mut [u8; 16] {
         buf[..6].copy_from_slice(&mac);
-        buf[6] = flags;
+        buf[6] = B0_FLAGS;
         buf[7..=11].copy_from_slice(&raw_nonce);
         buf[12..].copy_from_slice(&(payload_len as u32).to_be_bytes());
         buf
     }
 
     /// Generates the raw, unencrypted verification tag from input blocks, headers, and payload.
-    pub fn gen_raw_tag(
+    fn gen_raw_tag(
         &mut self,
         b_block: &mut [u8; 16],
         ad_header: AdHeader,
         payload: &[u8],
-    ) -> [u8; 8] {
+    ) -> [u8; TAG_SIZE] {
         let mut padded_header = [0_u8; 16];
         padded_header[0..2].copy_from_slice(&ad_header.u16_be_len());
         padded_header[2..14].copy_from_slice(&*ad_header);
@@ -493,14 +567,14 @@ impl<T: Encrypt> AESCCM<T> {
             .for_each(|(b, r)| *b ^= r);
         self.aes.encrypt(b_block, &mut key_stream_buf, self.key);
 
-        b_block[..8].try_into().unwrap()
+        b_block[..TAG_SIZE].try_into().unwrap()
     }
 
     /// XOR encrypts or decrypts the 8-byte authentication tag using the first key stream block.
-    pub fn xor_tag(&mut self, tag: &mut [u8; 8], a_block: &mut [u8; 16]) {
+    fn xor_tag(&mut self, tag: &mut [u8; TAG_SIZE], a_block: &mut [u8; 16]) {
         let mut key_stream_buf = [0_u8; 16];
         self.aes.encrypt(&mut key_stream_buf, a_block, self.key);
-        for i in 0..8 {
+        for i in 0..TAG_SIZE {
             tag[i] ^= key_stream_buf[i];
         }
     }
@@ -510,7 +584,7 @@ impl<T: Encrypt> AESCCM<T> {
     /// # Errors
     ///
     /// Returns `Err(PacketError::AESCounterOverflow)` if the sequential block count overflows.
-    pub fn xor_payload(
+    fn xor_payload(
         &mut self,
         payload: &mut [u8],
         mut a_block: &mut [u8; 16],
@@ -545,10 +619,10 @@ impl<T: Encrypt> AESCCM<T> {
     }
 
     /// Constant-time array comparison to mitigate timing side-channel attacks on authentication tags.
-    pub fn is_tag_match_const_time(tag_a: &[u8; 8], tag_b: &[u8; 8]) -> bool {
+    fn is_tag_match_const_time(tag_a: &[u8; TAG_SIZE], tag_b: &[u8; TAG_SIZE]) -> bool {
         let mut acc = 0;
 
-        for i in 0..8 {
+        for i in 0..TAG_SIZE {
             acc |= tag_a[i] ^ tag_b[i];
         }
         acc == 0
