@@ -1,3 +1,0 @@
-[build]
-target = "riscv32imc-unknown-none-elf"
-[target.'cfg(not(target_arch = "riscv32imc"))'.dependencies]

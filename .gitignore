@@ -1,4 +1,5 @@
-/target
+**/target/
 Makefile
 .zed/
 test_*
+.gitignore

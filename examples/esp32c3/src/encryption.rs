@@ -1,23 +1,14 @@
 #![no_std]
 #![no_main]
-#![deny(
-    clippy::mem_forget,
-    reason = "mem::forget is generally not safe to do with esp_hal types, especially those \
-    holding buffers for the duration of a data transfer."
-)]
-#![deny(clippy::large_stack_frames)]
-#[allow(
-    clippy::large_stack_frames,
-    reason = "it's not unusual to allocate larger buffers etc. in main"
-)]
+
 use esp_backtrace as _;
-use esp_println as _;
+use esp_println::{self as _};
 esp_bootloader_esp_idf::esp_app_desc!();
-use defmt::info;
 use esp_hal::{aes::Aes, clock::CpuClock};
 
-use lib::aesccm::{Command, Component, Encrypt, MacAddr, PacketData, AESCCM};
-use mcu_comms::{self as lib, aesccm::PacketView};
+use defmt::info;
+use mcu_comms::{Encrypt, MacAddr, PacketData, PacketView, AESCCM};
+use serde::{Deserialize, Serialize};
 
 /// This example was made with an Esp32c3. See the cargo.toml in /examples for info about the imports.
 /// You will, however, want to get your mcu's specific Aes hal.
@@ -27,6 +18,24 @@ impl Encrypt for AesHal {
         key_stream_buf.copy_from_slice(block);
         self.0.encrypt(key_stream_buf, key);
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+enum Command {
+    On(Component),
+    Off(Component),
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+enum Component {
+    Led(Info),
+    Camera(Info),
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct Info {
+    forever: bool,
+    duration: u32,
 }
 
 #[esp_hal::main]
@@ -45,18 +54,22 @@ fn main() -> ! {
     let mut aesccm = AESCCM::new(AesHal(aes), aes_key);
     let packet_data = PacketData::new(
         MacAddr::default(),
-        0b01100101, // Your own custom flags, can be whatever you want
-        Command::On(Component::Led(1)),
+        0b00_100100, // Your own custom flags, can be whatever you want except first 2 dominant bits are reserved for key rotation
+        Command::On(Component::Led(Info {
+            forever: true,
+            duration: 0,
+        })),
     );
-    let mut aesccm_packet = aesccm.encrypt(packet_data).expect("Encryption failure");
-    let bytes = aesccm_packet.inner.as_mut_slice();
+    let mut frame = aesccm.encrypt(&packet_data).expect("Encryption failure");
+
+    let bytes = frame.bytes_mut();
     // Data over air transmition...
     //
-    let view = PacketView::try_from(&*bytes).expect("Decryption failure");
+    let view = PacketView::try_from(&*bytes).expect("Packet view failure");
 
     let _mac = view.mac(); // check the fields before decrypting..
 
-    let decrypted = aesccm.decrypt(bytes).expect("Decryption failure");
+    let decrypted = aesccm.decrypt(bytes).expect("Decryption failed");
 
     assert_eq!(packet_data, decrypted);
 
