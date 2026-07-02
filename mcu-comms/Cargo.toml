@@ -1,9 +1,9 @@
 [package]
 name = "mcu-comms"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["SimonDaign0"]
 edition = "2024"
-description = "A communication and framing protocol utility library with encryption for microcontrollers."
+description = "A lightweight, no_std communication framing and packet encryption utility library designed for resource-constrained microcontrollers."
 documentation = "https://docs.rs/mcu-comms"
 repository = "https://github.com/SimonDaign0/mcu-comms"
 readme = "README.md"
