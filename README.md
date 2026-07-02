@@ -1,6 +1,6 @@
 /mcu-comms
 
-A lightweight, no_std-compatible communication framing and packet encryption utility library designed for resource-constrained microcontrollers. (Has it's own README.md)
+A lightweight, no_std-compatible communication framing and packet encryption utility library designed for resource-constrained microcontrollers. (Has its own README.md)
 
 /examples
 
