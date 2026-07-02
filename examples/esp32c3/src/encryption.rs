@@ -2,13 +2,12 @@
 #![no_main]
 
 use esp_backtrace as _;
-use esp_println::{self as _};
+use esp_println as _;
 esp_bootloader_esp_idf::esp_app_desc!();
 use esp_hal::{aes::Aes, clock::CpuClock};
 
 use defmt::info;
-use mcu_comms::{Encrypt, MacAddr, PacketData, PacketView, AESCCM};
-use serde::{Deserialize, Serialize};
+use mcu_comms::prelude::*;
 
 /// This example was made with an Esp32c3. See the cargo.toml in /examples for info about the imports.
 /// You will, however, want to get your mcu's specific Aes hal.
@@ -19,23 +18,18 @@ impl Encrypt for AesHal {
         self.0.encrypt(key_stream_buf, key);
     }
 }
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
+#[payload]
 enum Command {
     On(Component),
     Off(Component),
+    Move(Component, (u16, u16, u64)),
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-enum Component {
-    Led(Info),
-    Camera(Info),
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-struct Info {
-    forever: bool,
-    duration: u32,
+#[derive(Debug, PartialEq, Eq)]
+#[payload]
+struct Component {
+    id: u16,
 }
 
 #[esp_hal::main]
@@ -52,13 +46,12 @@ fn main() -> ! {
     // Get the mcu's Hardware accelerated AES peripheral
     let aes = Aes::new(peripherals.AES);
     let mut aesccm = AESCCM::new(AesHal(aes), aes_key);
+
+    let command = Command::Move(Component { id: 3 }, (12, 34, 18));
     let packet_data = PacketData::new(
         MacAddr::default(),
         0b00_100100, // Your own custom flags, can be whatever you want except first 2 dominant bits are reserved for key rotation
-        Command::On(Component::Led(Info {
-            forever: true,
-            duration: 0,
-        })),
+        command,
     );
     let mut frame = aesccm.encrypt(&packet_data).expect("Encryption failure");
 

@@ -1,8 +1,8 @@
 [package]
 name = "mcu-comms"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["SimonDaign0"]
-edition = "2021"
+edition = "2024"
 description = "A communication and framing protocol utility library with encryption for microcontrollers."
 documentation = "https://docs.rs/mcu-comms"
 repository = "https://github.com/SimonDaign0/mcu-comms"
@@ -14,3 +14,4 @@ categories = ["embedded", "cryptography", "no-std"]
 [dependencies]
 serde = { version = "1.0.228", default-features = false, features = ["derive"] }
 postcard = { version = "1.0" }
+mcu-comms-macros = { path = "../mcu-comms-macros" }

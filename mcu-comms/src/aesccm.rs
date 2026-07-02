@@ -5,19 +5,17 @@
 //! It handles packet serialization, MAC address validation, nonce tracking,
 //! and hardware-accelerated encrypt/decrypt operations through a custom HAL trait.
 use core::ops::Deref;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 // Package-wide global constants to prevent repetition
-const HEADER_SIZE: usize = 12;
-const MAX_PAYLOAD_SIZE: usize = 64;
-const TAG_SIZE: usize = 16;
+pub const HEADER_SIZE: usize = 12;
+pub const TAG_SIZE: usize = 16;
 const FLAGS_IDX: usize = 6;
 const NONCE_OFFSET: usize = 7;
 const MAC_OFFSET: usize = 0;
 const PAYLOAD_OFFSET: usize = HEADER_SIZE;
 
 /// Errors that can occur during packet construction, serialization, or decryption.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     /// Cryptographic verification failed (tampered payload or invalid key).
     Authentication,
@@ -31,10 +29,8 @@ pub enum Error {
     Duplicate,
     /// General payload corruption.
     Corrupted,
-    /// If the flag used overrides some reserved bytes
-    ReservedBytesOverride,
-    ///
-    Postcard(postcard::Error),
+    /// Postcard specific error during Encryption/Decryption
+    PostcardError,
 }
 
 /// A HAL trait to allow different MCUs with AES hardware acceleration to hook onto the AES-CCM implementation.
@@ -59,21 +55,22 @@ pub trait Encrypt {
     fn encrypt(&mut self, key_stream_buf: &mut [u8; 16], block: &mut [u8; 16], key: [u8; 16]);
 }
 
+use crate::Payload;
 /// A stack-allocated serialized packet buffer optimized for `no_std` environments.
 #[derive(Debug)]
-pub struct Frame {
-    inner: [u8; HEADER_SIZE + 4 + MAX_PAYLOAD_SIZE + TAG_SIZE],
+pub struct Frame<T: Payload> {
+    pub inner: T::FrameBuf,
     len: usize,
 }
-impl Default for Frame {
+impl<T: Payload> Default for Frame<T> {
     fn default() -> Self {
         Self {
-            inner: [0_u8; HEADER_SIZE + 4 + MAX_PAYLOAD_SIZE + TAG_SIZE],
+            inner: T::new_buf(),
             len: 0,
         }
     }
 }
-impl Frame {
+impl<T: Payload> Frame<T> {
     fn new(mac: [u8; 6], flags: u8, raw_nonce: [u8; 5]) -> Result<Self, Error> {
         let mut frame = Self::default();
         frame.extend_from_slice(&mac)?;
@@ -83,34 +80,34 @@ impl Frame {
     }
 
     fn payload_mut_slice(&mut self) -> &mut [u8] {
-        &mut self.inner[HEADER_SIZE..]
+        &mut self.inner.as_mut()[HEADER_SIZE..]
     }
     fn finalize(&mut self, payload_len: usize, tag: [u8; 16]) -> Result<(), Error> {
         self.len += payload_len;
         self.extend_from_slice(&tag)
     }
     pub fn bytes(&self) -> &[u8] {
-        &self.inner[..self.len]
+        &self.inner.as_ref()[..self.len]
     }
 
     pub fn bytes_mut(&mut self) -> &mut [u8] {
-        &mut self.inner[..self.len]
+        &mut self.inner.as_mut()[..self.len]
     }
 
     fn push(&mut self, byte: u8) -> Result<(), Error> {
-        if self.len >= self.inner.len() {
+        if self.len >= self.inner.as_ref().len() {
             return Err(Error::BufferOverflow);
         }
-        self.inner[self.len] = byte;
+        self.inner.as_mut()[self.len] = byte;
         self.len += 1;
         Ok(())
     }
 
     fn extend_from_slice(&mut self, iter: &[u8]) -> Result<(), Error> {
-        if iter.len() + self.len > self.inner.len() {
+        if iter.len() + self.len > self.inner.as_ref().len() {
             return Err(Error::BufferOverflow);
         }
-        self.inner[self.len..self.len + iter.len()].copy_from_slice(iter);
+        self.inner.as_mut()[self.len..self.len + iter.len()].copy_from_slice(iter);
         self.len += iter.len();
         Ok(())
     }
@@ -120,7 +117,7 @@ impl Frame {
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct PacketData<T>
 where
-    T: Serialize + DeserializeOwned,
+    T: Payload,
 {
     /// Destination MAC address.
     pub dst: MacAddr,
@@ -132,10 +129,10 @@ where
 
 impl<T> PacketData<T>
 where
-    T: Serialize + DeserializeOwned,
+    T: Payload,
 {
     /// Instantiates a new packet data structure ready for processing.
-    /// The first 2 dominant bytes are reserved for key rotation and WILL be overritten
+    /// The first 2 dominant bits are reserved for key rotation and WILL be overritten
     pub fn new(dst: MacAddr, mut flags: u8, payload: T) -> Self {
         flags &= 0b_00_111111;
         Self {
@@ -387,14 +384,6 @@ impl AdHeader {
     }
 }
 
-impl From<[u8; 16]> for AdHeader {
-    fn from(value: [u8; 16]) -> Self {
-        Self {
-            inner: value[2..14].try_into().unwrap(),
-        }
-    }
-}
-
 impl IntoIterator for AdHeader {
     type Item = u8;
     type IntoIter = core::array::IntoIter<u8, 12>;
@@ -452,16 +441,16 @@ where
     ///
     /// Returns `Err(PacketError::BufferOverflow)` if serialization fails or
     /// `Err(PacketError::AESCounterOverflow)` if the nonce limits are exceeded.
-    pub fn encrypt<T>(&mut self, packet_data: &PacketData<T>) -> Result<Frame, Error>
+    pub fn encrypt<T>(&mut self, packet_data: &PacketData<T>) -> Result<Frame<T>, Error>
     where
-        T: Serialize + DeserializeOwned,
+        T: Payload,
     {
         let mac = *packet_data.dst;
         let raw_nonce = self.tx_nonce.inc()?;
         let mut frame = Frame::new(mac, packet_data.flags, raw_nonce)?;
 
         let mut payload = postcard::to_slice(&packet_data.payload, frame.payload_mut_slice())
-            .map_err(|e| Error::Postcard(e))?;
+            .map_err(|_| Error::PostcardError)?;
 
         let payload_len = payload.len();
 
@@ -494,7 +483,7 @@ where
     /// - `PacketError::Corrupted` if the tag verification fails.
     pub fn decrypt<T>(&mut self, bytes: &mut [u8]) -> Result<PacketData<T>, Error>
     where
-        T: Serialize + DeserializeOwned,
+        T: Payload,
     {
         let parts = Parts::try_from(&*bytes)?;
         if parts.nonce() <= self.rx_nonce.counter {

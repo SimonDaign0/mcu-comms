@@ -4,8 +4,8 @@ path = "src/encryption.rs"
 
 [package]
 name = "examples"
-version = "0.1.0"
-edition = "2021"
+version = "0.3.0"
+edition = "2024"
 
 [dependencies]
 mcu-comms = { path = "../../mcu-comms/" }

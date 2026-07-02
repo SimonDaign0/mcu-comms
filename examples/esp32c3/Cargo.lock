@@ -934,10 +934,21 @@ checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
 name = "mcu-comms"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
+ "mcu-comms-macros",
  "postcard",
  "serde",
+]
+
+[[package]]
+name = "mcu-comms-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde",
+ "syn",
 ]
 
 [[package]]
