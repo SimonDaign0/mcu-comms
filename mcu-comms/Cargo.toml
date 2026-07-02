@@ -1,6 +1,6 @@
 [package]
 name = "mcu-comms"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["SimonDaign0"]
 edition = "2021"
 description = "A communication and framing protocol utility library with encryption for microcontrollers."

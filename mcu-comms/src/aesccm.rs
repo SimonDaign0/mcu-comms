@@ -62,7 +62,7 @@ pub trait Encrypt {
 /// A stack-allocated serialized packet buffer optimized for `no_std` environments.
 #[derive(Debug)]
 pub struct Frame {
-    pub inner: [u8; HEADER_SIZE + 4 + MAX_PAYLOAD_SIZE + TAG_SIZE],
+    inner: [u8; HEADER_SIZE + 4 + MAX_PAYLOAD_SIZE + TAG_SIZE],
     len: usize,
 }
 impl Default for Frame {
