@@ -2,6 +2,14 @@
 name = "mcu-comms-macros"
 version = "0.1.0"
 edition = "2024"
+authors = ["SimonDaign0"]
+description = "An internal procedural macro library for `mcu-comms` that provides the `#[payload]` macro."
+documentation = "https://docs.rs/mcu-comms"
+repository = "https://github.com/SimonDaign0/mcu-comms"
+readme = "README.md"
+license = "Apache-2.0"
+keywords = ["mcu", "aes", "ccm", "cryptography", "hal"]
+categories = ["embedded", "cryptography", "no-std"]
 
 [lib]
 proc-macro = true
