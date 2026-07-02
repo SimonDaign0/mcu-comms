@@ -704,7 +704,7 @@ dependencies = [
 
 [[package]]
 name = "examples"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "critical-section",
  "defmt 1.1.0",
@@ -944,6 +944,8 @@ dependencies = [
 [[package]]
 name = "mcu-comms-macros"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43855f7c3a17b514107602a82ff996db6b8b9a929636c9fbf35d30dca60a4125"
 dependencies = [
  "proc-macro2",
  "quote",

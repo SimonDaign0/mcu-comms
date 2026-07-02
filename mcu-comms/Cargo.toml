@@ -14,4 +14,4 @@ categories = ["embedded", "cryptography", "no-std"]
 [dependencies]
 serde = { version = "1.0.228", default-features = false, features = ["derive"] }
 postcard = { version = "1.0" }
-mcu-comms-macros = { path = "../mcu-comms-macros" }
+mcu-comms-macros = "0.1.0"
