@@ -21,16 +21,18 @@ impl Encrypt for AesHal {
 
 #[derive(Debug, PartialEq, Eq)]
 #[payload]
-enum Command {
-    On(Component),
-    Off(Component),
-    Move(Component, (u16, u16, u64)),
+struct SensorReading {
+    temp: i16,
+    temp_type: TempType,
+    battery_mv: u16,
+    flags: u8,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 #[payload]
-struct Component {
-    id: u16,
+enum TempType {
+    C,
+    F,
 }
 
 #[esp_hal::main]
@@ -46,14 +48,19 @@ fn main() -> ! {
 
     // Get the mcu's Hardware accelerated AES peripheral
     let aes = Aes::new(peripherals.AES);
-    let mut aesccm = AESCCM::new(AesHal(aes), aes_key);
+    let mut aesccm = AESCCM::new(AesHal(aes), aes_key, MacAddr::default());
 
-    let command = Command::Move(Component { id: 3 }, (12, 34, 18));
+    let payload = SensorReading {
+        temp: 20,
+        temp_type: TempType::C,
+        battery_mv: 30,
+        flags: 0b00_10_1100,
+    };
     let packet_data = PacketData::new(
-        MacAddr::default(),
-        0b00_100100, // Your own custom flags, can be whatever you want except first 2 dominant bits are reserved for key rotation
-        command,
-    );
+        0b00_10_0100, // Your own custom flags, can be whatever you want except first 2 dominant bits are reserved for key rotation
+        payload,
+    )
+    .expect("Reserved bit override");
     let mut frame = aesccm.encrypt(&packet_data).expect("Encryption failure");
 
     let bytes = frame.bytes_mut();

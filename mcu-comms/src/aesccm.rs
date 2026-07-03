@@ -27,6 +27,8 @@ pub enum Error {
     AESCounterOverflow,
     /// Received a packet with a duplicate or older nonce (replay attack protection).
     Duplicate,
+    /// If reserved bits are overridden with custom flags
+    ReservedBitOverride,
     /// General payload corruption.
     Corrupted,
     /// Postcard specific error during Encryption/Decryption
@@ -119,8 +121,6 @@ pub struct PacketData<T>
 where
     T: Payload,
 {
-    /// Destination MAC address.
-    pub dst: MacAddr,
     /// Protocol or routing control flags.
     pub flags: u8,
     /// payload to be serialized and encrypted.
@@ -132,19 +132,17 @@ where
     T: Payload,
 {
     /// Instantiates a new packet data structure ready for processing.
-    /// The first 2 dominant bits are reserved for key rotation and WILL be overritten
-    pub fn new(dst: MacAddr, mut flags: u8, payload: T) -> Self {
-        flags &= 0b_00_111111;
-        Self {
-            dst,
-            flags,
-            payload,
-        }
+    /// The first 2 dominant bits are reserved for key rotation and WILL be overritten > bit 1: req? | bit 2 ack?
+    pub fn new(flags: u8, payload: T) -> Result<Self, Error> {
+        if (flags & 0b_11_00_0000) != 0 {
+            return Err(Error::ReservedBitOverride);
+        };
+        Ok(Self { flags, payload })
     }
 }
 
 /// A standard 6-byte media access control (MAC) address.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct MacAddr {
     inner: [u8; 6],
 }
@@ -199,7 +197,7 @@ impl Nonce {
     ///
     /// # Errors
     ///
-    /// Returns `Err(PacketError::AESCounterOverflow)` if the counter overflows
+    /// Returns `Err(Error::AESCounterOverflow)` if the counter overflows
     /// the maximum 5-byte threshold (`0xFF_FF_FF_FF_FF`).
     fn inc(&mut self) -> Result<[u8; 5], Error> {
         const MAX_5_BYTES: u64 = 0xFF_FF_FF_FF_FF;
@@ -263,7 +261,7 @@ impl<'a> PacketView<'a> {
     ///
     /// # Errors
     ///
-    /// Returns `PacketError` if the buffer is too small or malformed.
+    /// Returns `Error` if the buffer is too small or malformed.
     pub fn new(bytes: &'a [u8]) -> Result<Self, Error> {
         Self::try_from(bytes)
     }
@@ -404,6 +402,7 @@ pub struct AESCCM<E>
 where
     E: Encrypt,
 {
+    peer_mac: MacAddr,
     rx_nonce: Nonce,
     tx_nonce: Nonce,
     key: [u8; 16],
@@ -414,8 +413,9 @@ where
     E: Encrypt,
 {
     /// Creates a new AES-CCM peripheral engine using a key and an hardware peripheral implementation.
-    pub fn new(aes: E, key: [u8; 16]) -> Self {
+    pub fn new(aes: E, key: [u8; 16], peer_mac: MacAddr) -> Self {
         AESCCM {
+            peer_mac,
             rx_nonce: Nonce { counter: 0 },
             tx_nonce: Nonce { counter: 0 },
             key,
@@ -439,15 +439,14 @@ where
     ///
     /// # Errors
     ///
-    /// Returns `Err(PacketError::BufferOverflow)` if serialization fails or
-    /// `Err(PacketError::AESCounterOverflow)` if the nonce limits are exceeded.
+    /// Returns `Err(Error::BufferOverflow)` if serialization fails or
+    /// `Err(Error::AESCounterOverflow)` if the nonce limits are exceeded.
     pub fn encrypt<T>(&mut self, packet_data: &PacketData<T>) -> Result<Frame<T>, Error>
     where
         T: Payload,
     {
-        let mac = *packet_data.dst;
         let raw_nonce = self.tx_nonce.inc()?;
-        let mut frame = Frame::new(mac, packet_data.flags, raw_nonce)?;
+        let mut frame = Frame::new(*self.peer_mac, packet_data.flags, raw_nonce)?;
 
         let mut payload = postcard::to_slice(&packet_data.payload, frame.payload_mut_slice())
             .map_err(|_| Error::PostcardError)?;
@@ -456,13 +455,13 @@ where
 
         let mut block_buf = [0_u8; 16];
 
-        let b_block = Self::write_b_block(&mut block_buf, mac, raw_nonce, payload_len);
+        let b_block = Self::write_b_block(&mut block_buf, *self.peer_mac, raw_nonce, payload_len);
 
-        let ad_header = AdHeader::new(&mac, packet_data.flags, &raw_nonce);
+        let ad_header = AdHeader::new(&*self.peer_mac, packet_data.flags, &raw_nonce);
 
         let mut tag = self.gen_raw_tag(b_block, ad_header, payload);
 
-        let a_block = Self::write_a_block(&mut block_buf, mac, raw_nonce);
+        let a_block = Self::write_a_block(&mut block_buf, *self.peer_mac, raw_nonce);
 
         self.xor_tag(&mut tag, a_block);
 
@@ -478,14 +477,18 @@ where
     /// # Errors
     ///
     /// Returns:
-    /// - `PacketError::InvalidFormat` if parsing fails.
-    /// - `PacketError::Duplicate` if a potential replay attack is intercepted.
-    /// - `PacketError::Corrupted` if the tag verification fails.
+    /// - `Error::ReservedBitOverride` if packet is a key rotation request which has not been implemented yet
+    /// - `Error::InvalidFormat` if parsing fails or a key rotation request comes with payload.
+    /// - `Error::Duplicate` if a potential replay attack is intercepted.
+    /// - `Error::Corrupted` if the tag verification fails.
     pub fn decrypt<T>(&mut self, bytes: &mut [u8]) -> Result<PacketData<T>, Error>
     where
         T: Payload,
     {
         let parts = Parts::try_from(&*bytes)?;
+        if (parts.flags & 0b1_000_0000) != 0 && parts.payload_len > 0 {
+            return Err(Error::InvalidFormat);
+        }
         if parts.nonce() <= self.rx_nonce.counter {
             return Err(Error::Duplicate);
         }
@@ -515,7 +518,8 @@ where
 
         let serialized_payload =
             postcard::from_bytes::<T>(&payload).map_err(|_| Error::InvalidFormat)?;
-        let packet_data = PacketData::new(parts.mac.into(), parts.flags, serialized_payload);
+
+        let packet_data = PacketData::new(parts.flags, serialized_payload)?;
         self.rx_nonce.set(parts.nonce());
         Ok(packet_data)
     }
@@ -595,7 +599,7 @@ where
     ///
     /// # Errors
     ///
-    /// Returns `Err(PacketError::AESCounterOverflow)` if the sequential block count overflows.
+    /// Returns `Err(Error::AESCounterOverflow)` if the sequential block count overflows.
     fn xor_payload(&mut self, payload: &mut [u8], mut a_block: &mut [u8; 16]) -> Result<(), Error> {
         let mut key_stream_buf = [0_u8; 16];
         let mut counter = 0_u32;

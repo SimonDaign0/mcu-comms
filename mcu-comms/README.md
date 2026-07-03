@@ -129,8 +129,8 @@ struct Command {
 }
 
 let mut ccm = AESCCM::new(my_aes_hal, root_key, peer_mac, &mut my_nonce_store);
-
-let packet = PacketData::new(0b0000_0000, Command { id: 1, value: 42 });
+// 2 most significant bits are reserved for key rotations
+let packet = PacketData::new(0b00_00_0000, Command { id: 1, value: 42 });
 let frame = ccm.encrypt(&packet)?;
 radio.send(frame.bytes());
 
@@ -153,6 +153,16 @@ This crate wants scrutiny, especially on:
 Issues, PRs, and review from anyone with cryptography or protocol design
 experience are genuinely wanted — please don't assume this has already been
 checked by someone more qualified than you.
+
+## Implementation status
+
+| Component                                        | Status                                   |
+| ------------------------------------------------ | ---------------------------------------- |
+| AES-CCM core (encrypt/decrypt, tag verification) | ✅ Implemented                           |
+| `#[payload]` macro                               | ✅ Implemented                           |
+| Peer-bound sessions                              | 🚧 In progress — not yet safe to rely on |
+| `NonceStore` persistence + checkpointing         | 🚧 In progress — not yet safe to rely on |
+| Key rotation handshake                           | 🚧 In progress — not yet safe to rely on |
 
 ## License
 
