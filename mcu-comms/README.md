@@ -1,6 +1,6 @@
 # mcu_comms
 
-> ⚠️ **Status: `0.1.0`, under active development.** The core AES-CCM implementation
+> ⚠️ **Status: under active development.** The core AES-CCM implementation
 > follows RFC 3610. The key-rotation protocol is **original design** and has
 > **not yet received independent cryptographic review**. Please read
 > [SECURITY.md](./SECURITY.md) before using this in anything that matters.
