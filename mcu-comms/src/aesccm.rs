@@ -529,7 +529,7 @@ where
         const A_NONCE_OFFSET: usize = 7;
         const A_MAC_OFFSET: usize = 1;
         buf.fill(0);
-        buf[0] = 4;
+        buf[0] = 3;
         buf[A_MAC_OFFSET..A_MAC_OFFSET + 6].copy_from_slice(&mac);
         buf[A_NONCE_OFFSET..A_NONCE_OFFSET + 5].copy_from_slice(&raw_nonce);
         buf

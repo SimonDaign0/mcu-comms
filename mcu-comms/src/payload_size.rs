@@ -11,33 +11,11 @@ pub trait MaxPayloadSize: MaxSize {
 use serde::{Serialize, de::DeserializeOwned};
 pub trait Payload: Serialize + DeserializeOwned + MaxPayloadSize {}
 
-#[cfg(target_pointer_width = "16")]
-impl MaxSize for isize {
-    const MAX_SIZE: usize = 3;
-}
-#[cfg(target_pointer_width = "16")]
-impl MaxSize for usize {
-    const MAX_SIZE: usize = 3;
-}
-#[cfg(target_pointer_width = "32")]
-impl MaxSize for isize {
-    const MAX_SIZE: usize = 5;
-}
-#[cfg(target_pointer_width = "32")]
-impl MaxSize for usize {
-    const MAX_SIZE: usize = 5;
-}
-#[cfg(target_pointer_width = "64")]
-impl MaxSize for isize {
-    const MAX_SIZE: usize = 10;
-}
-#[cfg(target_pointer_width = "64")]
-impl MaxSize for usize {
-    const MAX_SIZE: usize = 10;
-}
-
 pub trait MaxSize {
     const MAX_SIZE: usize;
+}
+impl MaxSize for usize {
+    const MAX_SIZE: usize = 5;
 }
 impl MaxSize for bool {
     const MAX_SIZE: usize = 1;

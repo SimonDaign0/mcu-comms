@@ -5,3 +5,10 @@ A lightweight, no_std-compatible communication framing and packet encryption uti
 /examples
 
 Examples of the use of mcu-comms using mcus.
+
+Installation
+
+Add this to your Cargo.toml dependencies:
+
+[dependencies]
+mcu-comms = `latest version`

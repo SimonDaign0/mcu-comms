@@ -18,6 +18,7 @@ impl Encrypt for AesHal {
         self.0.encrypt(key_stream_buf, key);
     }
 }
+
 #[derive(Debug, PartialEq, Eq)]
 #[payload]
 enum Command {

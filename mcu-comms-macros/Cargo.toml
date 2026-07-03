@@ -1,6 +1,6 @@
 [package]
 name = "mcu-comms-macros"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 authors = ["SimonDaign0"]
 description = "An internal procedural macro library for `mcu-comms` that provides the `#[payload]` macro."
