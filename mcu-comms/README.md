@@ -166,4 +166,4 @@ checked by someone more qualified than you.
 
 ## License
 
-Dual-licensed under MIT or Apache-2.0, at your option.
+Licensed under the Apache License, Version 2.0 (LICENSE or http://www.apache.org/licenses/LICENSE-2.0).

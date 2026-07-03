@@ -304,7 +304,7 @@ impl<'a> TryFrom<&'a [u8]> for PacketView<'a> {
 
     /// Attempts to parse a slice of over-the-air bytes into an organized packet view layout.
     fn try_from(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        if bytes.len() <= HEADER_SIZE + TAG_SIZE {
+        if bytes.len() < HEADER_SIZE + TAG_SIZE {
             return Err(Error::InvalidFormat);
         }
         Ok(Self { bytes })
