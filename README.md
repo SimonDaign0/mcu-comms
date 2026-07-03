@@ -1,14 +1,30 @@
-/mcu-comms
+# mcu-comms
 
-A lightweight, no_std-compatible communication framing and packet encryption utility library designed for resource-constrained microcontrollers. (Has its own README.md)
+This repository contains the `mcu-comms` ecosystem, a lightweight, `no_std` communication library for resource-constrained microcontrollers.
 
-/examples
+## Repository layout
 
-Examples of the use of mcu-comms using mcus.
+### `/mcu-comms`
 
-Installation
+The main library crate. It provides communication framing, authenticated packet encryption, serialization support, and utilities for defining portable payload types.
 
-Add this to your Cargo.toml dependencies:
+See the crate's own `README.md` for detailed documentation.
 
+### `/mcu-comms-macros`
+
+An internal procedural macro crate used by `mcu-comms`. It provides the `#[payload]` attribute macro for defining payload types with automatic serialization and compile-time size calculations.
+
+This crate is an implementation detail and is not intended to be used directly.
+
+### `/examples`
+
+Example projects demonstrating how to use `mcu-comms`.
+
+## Installation
+
+Add `mcu-comms` to your `Cargo.toml`:
+
+```toml
 [dependencies]
-mcu-comms = `latest version`
+mcu-comms = "<latest version>"
+```
