@@ -132,7 +132,7 @@ where
     T: Payload,
 {
     /// Instantiates a new packet data structure ready for processing.
-    /// The first 2 dominant bits are reserved for key rotation and WILL be overritten > bit 1: req? | bit 2 ack?
+    /// The first 2 dominant bits are reserved for key rotation and will return Error::ReservedBitOverride if overritten > bit 1: req? | bit 2 ack?
     pub fn new(flags: u8, payload: T) -> Result<Self, Error> {
         if (flags & 0b_11_00_0000) != 0 {
             return Err(Error::ReservedBitOverride);
