@@ -40,15 +40,17 @@ fn main() -> ! {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
-    //You generally do not want to hard code your key on an actual system but it's fine for testing.
-    let aes_key: [u8; 16] = [
-        0x72, 0x08, 0xe0, 0xeb, 0x70, 0xb1, 0xa8, 0x87, 0x29, 0x9f, 0x66, 0x94, 0xe9, 0x12, 0x4d,
-        0xc1,
-    ];
+    //You generally do not want to hard code your root key on an actual system but it's fine for testing.
+    let root_key = [0u8; 32];
 
     // Get the mcu's Hardware accelerated AES peripheral
     let aes = Aes::new(peripherals.AES);
-    let mut aesccm = AESCCM::new(AesHal(aes), aes_key, MacAddr::default());
+    let mut channel = PeerChannel::new(
+        AesHal(aes),
+        root_key,
+        MacAddr::default(), // host mac address
+        MacAddr::default(), // peer mac adress
+    );
 
     let payload = SensorReading {
         temp: 20,
@@ -60,17 +62,18 @@ fn main() -> ! {
         0b00_10_0100, // Your own custom flags, can be whatever you want except first 2 dominant bits are reserved for key rotation
         payload,
     )
-    .expect("Reserved bit override");
-    let mut frame = aesccm.encrypt(&packet_data).expect("Encryption failure");
+    .unwrap();
 
-    let bytes = frame.bytes_mut();
+    let mut frame = channel.encrypt(&packet_data).unwrap();
+
+    let bytes = frame.bytes();
     // Data over air transmition...
     //
-    let view = PacketView::try_from(&*bytes).expect("Packet view failure");
+    let view = PacketView::try_from(bytes).unwrap();
 
     let _mac = view.mac(); // check the fields before decrypting..
 
-    let decrypted = aesccm.decrypt(bytes).expect("Decryption failed");
+    let decrypted = channel.decrypt(frame.bytes_mut()).unwrap();
 
     assert_eq!(packet_data, decrypted);
 

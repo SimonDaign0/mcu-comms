@@ -23,8 +23,8 @@ pub fn payload(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
         impl ::mcu_comms::payload_size::MaxPayloadSize for #name {
             const FRAME_SIZE: usize = <#name as ::mcu_comms::payload_size::MaxSize>::MAX_SIZE
-                + ::mcu_comms::aesccm::HEADER_SIZE
-                + ::mcu_comms::aesccm::TAG_SIZE;
+                + ::mcu_comms::peer_channel::HEADER_SIZE
+                + ::mcu_comms::peer_channel::TAG_SIZE;
             type FrameBuf = [u8; Self::FRAME_SIZE];
             fn new_buf() -> Self::FrameBuf {
                 [0_u8; Self::FRAME_SIZE]
