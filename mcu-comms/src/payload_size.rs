@@ -1,5 +1,5 @@
 pub mod prelude {
-    pub use crate::payload_size::{MaxPayloadSize, MaxSize, Payload};
+    pub use crate::payload_size::{Empty, MaxPayloadSize, MaxSize, Payload};
 }
 
 pub trait MaxPayloadSize: MaxSize {
@@ -71,6 +71,26 @@ impl<T: MaxSize, const N: usize> MaxSize for [T; N] {
 impl<T: MaxSize, E: MaxSize> MaxSize for Result<T, E> {
     const MAX_SIZE: usize = 1 + T::MAX_SIZE + E::MAX_SIZE;
 }
+
+use serde::Deserialize;
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Empty payload for resync Frames
+pub struct Empty;
+
+impl MaxSize for Empty {
+    const MAX_SIZE: usize = 0;
+}
+impl MaxPayloadSize for Empty {
+    const FRAME_SIZE: usize = <Self as MaxSize>::MAX_SIZE
+        + crate::peer_channel::HEADER_SIZE
+        + crate::peer_channel::TAG_SIZE;
+    type FrameBuf = [u8; Self::FRAME_SIZE];
+    fn new_buf() -> Self::FrameBuf {
+        [0_u8; Self::FRAME_SIZE]
+    }
+}
+
+impl Payload for Empty {}
 
 macro_rules! impl_max_size_tuple {
     ($($t:ident),+) => {
